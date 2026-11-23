@@ -42,6 +42,7 @@ class DatabaseTest {
         try {
             val repository = LogRepository(db)
             repository.save(Asset(name = "مكيف", category = "جهاز"), false)
+            repository.ensureCatalog()
             val before = repository.snapshot()
             val bad = Snapshot(emptyList(), listOf(Maintenance(id = 1, assetId = 77, type = "فحص", date = "2025-01-01", cycle = "invalid")), emptyList())
             assertTrue(runCatching { repository.restore(bad) }.isFailure)

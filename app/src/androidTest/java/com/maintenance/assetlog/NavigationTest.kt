@@ -16,13 +16,14 @@ import org.junit.runner.RunWith
 class NavigationTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
-    @Test fun arabicTabsOpenAssetEditor() {
-        val assetsTab = hasText("الأصول") and hasClickAction()
-        compose.waitUntil(20_000) { compose.onAllNodes(assetsTab).fetchSemanticsNodes().isNotEmpty() }
+    @Test fun arabicDashboardOpensVehicleEditor() {
+        val assetsTab = hasText("السيارة") and hasClickAction()
+        compose.waitUntil(60_000) { compose.onAllNodes(assetsTab).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(assetsTab).performClick()
-        compose.onNodeWithText("إضافة أصل").performClick()
-        compose.onNodeWithText("أصل جديد").assertIsDisplayed()
-        compose.onNodeWithText("اسم الأصل").assertIsDisplayed()
+        compose.onNodeWithText("إدارة المركبات").performClick()
+        compose.onNodeWithText("إضافة مركبة أو جهاز").performClick()
+        compose.onNodeWithText("مركبة أو جهاز جديد").assertIsDisplayed()
+        compose.onNodeWithText("اسم المركبة أو الجهاز").assertIsDisplayed()
         compose.runOnIdle {
             assertEquals(android.view.View.LAYOUT_DIRECTION_RTL, compose.activity.window.decorView.layoutDirection)
         }

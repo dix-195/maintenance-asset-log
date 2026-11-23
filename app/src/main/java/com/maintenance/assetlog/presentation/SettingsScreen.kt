@@ -22,6 +22,8 @@ import java.util.Locale
 internal fun SettingsScreen(model: LogViewModel, settings: Settings, authenticate: (() -> Unit) -> Unit, export: (String) -> Unit) {
     var days by rememberSaveable(settings.days) { mutableStateOf(settings.days.toString()) }
     var currency by rememberSaveable(settings.currency) { mutableStateOf(settings.currency) }
+    var name by rememberSaveable(settings.userName) { mutableStateOf(settings.userName) }
+    var budget by rememberSaveable(settings.budget) { mutableStateOf(settings.budget?.let(::money).orEmpty()) }
     var invalid by remember { mutableStateOf(false) }
     var delete by rememberSaveable { mutableStateOf(false) }
     var restoreUri by rememberSaveable { mutableStateOf<Uri?>(null) }
@@ -32,7 +34,11 @@ internal fun SettingsScreen(model: LogViewModel, settings: Settings, authenticat
     }
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { restoreUri = it }
     Editor {
+        Heading("حسابك")
+        Field("اسمك، اختياري", name) { name = it }
+        Field("الميزانية الشهرية (${settings.currency})", budget, true) { budget = it; invalid = false }
         Heading("المظهر")
+        Toggle("تقليل الحركة", settings.reduceMotion) { model.saveSettings(settings.copy(reduceMotion = it)) }
         Choice(settings.theme, listOf("النظام", "فاتح", "داكن")) { model.saveSettings(settings.copy(theme = it)) }
         Heading("التنبيهات")
         Toggle("التنبيهات المحلية", settings.notifications) { enabled ->
@@ -41,12 +47,13 @@ internal fun SettingsScreen(model: LogViewModel, settings: Settings, authenticat
         }
         Field("أيام التذكير المسبق", days, true) { days = it; invalid = false }
         Field("العملة الافتراضية", currency) { currency = it; invalid = false }
-        if (invalid) Text("أدخل عدد أيام من ٠ إلى ٣٦٥ ورمز عملة من ثلاثة أحرف.", color = MaterialTheme.colorScheme.error)
+        if (invalid) Text("أدخل عدد أيام من ٠ إلى ٣٦٥ ورمز عملة من ثلاثة أحرف وميزانية موجبة عند تحديدها.", color = MaterialTheme.colorScheme.error)
         Button(onClick = {
             val parsedDays = normalizeNumber(days).toIntOrNull()
             val code = currency.trim().uppercase(Locale.ROOT)
-            invalid = parsedDays == null || parsedDays !in 0..365 || !code.matches(Regex("[A-Z]{3}"))
-            if (!invalid && parsedDays != null) model.saveSettings(settings.copy(days = parsedDays, currency = code))
+            val amount = runCatching { moneyInput(budget) }
+            invalid = amount.isFailure || amount.getOrNull()?.let { it <= 0 } == true || parsedDays == null || parsedDays !in 0..365 || !code.matches(Regex("[A-Z]{3}"))
+            if (!invalid && parsedDays != null) model.saveSettings(settings.copy(days = parsedDays, currency = code, userName = name.trim().take(60), budget = amount.getOrNull()))
         }) { Text("حفظ التفضيلات") }
         Heading("الخصوصية والبيانات")
         Toggle("قفل التطبيق ببصمة أو بقفل الجهاز", settings.locked) { locked ->
@@ -57,8 +64,8 @@ internal fun SettingsScreen(model: LogViewModel, settings: Settings, authenticat
         TextButton(onClick = { delete = true }) { Text("حذف جميع البيانات") }
         Text("الإصدار ${BuildConfig.VERSION_NAME}")
     }
-    if (delete) Confirm("حذف جميع البيانات", "سيُحذف كل الأصول وسجلات الصيانة والقطع من هذا الجهاز.", { delete = false }) {
-        model.change(done = { delete = false }) { queries.clear() }
+    if (delete) Confirm("حذف جميع البيانات", "ستُحذف المركبات والعمليات والقطع والأقسام المخصصة من هذا الجهاز.", { delete = false }) {
+        model.change(done = { delete = false }) { clearAll() }
     }
     if (exporting || restoreUri != null) {
         val backup = exporting

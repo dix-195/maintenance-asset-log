@@ -44,6 +44,8 @@ internal fun AssetEditor(asset: Asset, model: LogViewModel, leave: () -> Unit) {
     var specs by rememberSaveable { mutableStateOf(asset.specs) }
     var notes by rememberSaveable { mutableStateOf(asset.notes) }
     var odometer by rememberSaveable { mutableStateOf(asset.odometer?.toString().orEmpty()) }
+    var year by rememberSaveable { mutableStateOf(asset.manufactureYear?.toString().orEmpty()) }
+    var plate by rememberSaveable { mutableStateOf(asset.plate.orEmpty()) }
     var correction by rememberSaveable { mutableStateOf(false) }
     var photo by remember { mutableStateOf(asset.photo) }
     val context = LocalContext.current
@@ -56,11 +58,13 @@ internal fun AssetEditor(asset: Asset, model: LogViewModel, leave: () -> Unit) {
         }
     }
     Editor {
-        Heading(if (asset.id == 0L) "أصل جديد" else "تعديل الأصل")
-        Field("اسم الأصل", name) { name = it }
+        Heading(if (asset.id == 0L) "مركبة أو جهاز جديد" else "تعديل المركبة أو الجهاز")
+        Field("اسم المركبة أو الجهاز", name) { name = it }
         Field("التصنيف", category) { category = it }
         Field("الشركة المصنعة", maker) { maker = it }
         Field("الموديل", deviceModel) { deviceModel = it }
+        Field("سنة الصنع", year, true) { year = it }
+        Field("رقم اللوحة، اختياري", plate) { plate = it }
         Field("الرقم التسلسلي", serial) { serial = it }
         Field("تاريخ الشراء (YYYY-MM-DD)", purchased) { purchased = it }
         Field("سعر الشراء", price, true) { price = it }
@@ -79,13 +83,14 @@ internal fun AssetEditor(asset: Asset, model: LogViewModel, leave: () -> Unit) {
                 save(asset.copy(name = name.trim(), category = category.trim(), maker = maker.trim(),
                     model = deviceModel.trim(), serial = serial.trim(), purchased = dateInput(purchased),
                     price = moneyInput(price), specs = specs.trim(), notes = notes.trim(), photo = photo,
-                    odometer = numberInput(odometer)), correction)
+                    odometer = numberInput(odometer), manufactureYear = numberInput(year)?.let(Math::toIntExact),
+                    plate = plate.trim().ifBlank { null }), correction)
             }
-        }) { Text("حفظ الأصل") }
+        }) { Text("حفظ المركبة أو الجهاز") }
     }
 }
 
-private fun thumbnail(context: android.content.Context, uri: Uri): ByteArray {
+internal fun thumbnail(context: android.content.Context, uri: Uri): ByteArray {
     val reader = context.contentResolver
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     checkNotNull(reader.openInputStream(uri)).use { BitmapFactory.decodeStream(it, null, bounds) }
@@ -126,11 +131,11 @@ internal fun MaintenanceEditor(
     val available = assets.filter { !it.archived || it.id == assetId }
     Editor {
         Heading(if (previous != null && !repeating) "تعديل الصيانة" else "تسجيل صيانة")
-        if (available.isEmpty()) Text("أضف أصلًا نشطًا قبل تسجيل الصيانة")
+        if (available.isEmpty()) Text("أضف مركبة أو جهازًا نشطًا قبل تسجيل الصيانة")
         var expanded by remember { mutableStateOf(false) }
         Box {
             OutlinedButton(onClick = { expanded = true }, enabled = previous == null && available.isNotEmpty()) {
-                Text(available.firstOrNull { it.id == selected }?.name ?: "اختر الأصل")
+                Text(available.firstOrNull { it.id == selected }?.name ?: "اختر المركبة أو الجهاز")
             }
             DropdownMenu(expanded, { expanded = false }) {
                 available.forEach { asset ->

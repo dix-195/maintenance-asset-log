@@ -10,13 +10,14 @@ private val Context.store by preferencesDataStore("maintenance-settings")
 
 data class Settings(
     val theme: String = "النظام", val notifications: Boolean = false,
-    val days: Int = 7, val currency: String = "SAR", val locked: Boolean = false
+    val days: Int = 7, val currency: String = "SAR", val locked: Boolean = false,
+    val userName: String = "", val budget: Long? = null, val reduceMotion: Boolean = false
 )
 
 class Preferences(private val context: Context) {
     val settings = context.store.data.map {
         Settings(it[THEME] ?: "النظام", it[NOTIFICATIONS] ?: false,
-            it[DAYS] ?: 7, it[CURRENCY] ?: "SAR", it[LOCKED] ?: false)
+            it[DAYS] ?: 7, it[CURRENCY] ?: "SAR", it[LOCKED] ?: false, it[NAME].orEmpty(), it[BUDGET], it[REDUCE_MOTION] ?: false)
     }
 
     suspend fun save(value: Settings) {
@@ -27,6 +28,9 @@ class Preferences(private val context: Context) {
             it[DAYS] = value.days
             it[CURRENCY] = value.currency
             it[LOCKED] = value.locked
+            it[NAME] = value.userName
+            if (value.budget == null) it.remove(BUDGET) else it[BUDGET] = value.budget
+            it[REDUCE_MOTION] = value.reduceMotion
         }
     }
 
@@ -52,6 +56,9 @@ class Preferences(private val context: Context) {
         val DAYS = intPreferencesKey("days")
         val CURRENCY = stringPreferencesKey("currency")
         val LOCKED = booleanPreferencesKey("locked")
+        val NAME = stringPreferencesKey("mizan_name")
+        val BUDGET = longPreferencesKey("mizan_budget")
+        val REDUCE_MOTION = booleanPreferencesKey("mizan_reduce_motion")
         val SENT = stringSetPreferencesKey("sent")
         val SNOOZE = stringPreferencesKey("snooze")
     }

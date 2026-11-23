@@ -33,7 +33,7 @@ internal fun AssetDetails(
     var removingPart by remember { mutableStateOf<Part?>(null) }
     val item = asset
     if (item == null) {
-        Text("الأصل غير متاح", Modifier.padding(16.dp))
+        Text("المركبة أو الجهاز غير متاح", Modifier.padding(16.dp))
         return
     }
     val image by produceState<android.graphics.Bitmap?>(null, item.photo) {
@@ -44,16 +44,17 @@ internal fun AssetDetails(
             Heading(item.name)
             Text("${item.category} · ${if (item.archived) "مؤرشف" else "نشط"}")
         }
-        image?.let { bitmap -> item { Image(bitmap.asImageBitmap(), "صورة الأصل", Modifier.fillMaxWidth().heightIn(max = 240.dp)) } }
+        image?.let { bitmap -> item { Image(bitmap.asImageBitmap(), "صورة المركبة أو الجهاز", Modifier.fillMaxWidth().heightIn(max = 240.dp)) } }
         item {
-            Information("الشركة المصنعة" to item.maker, "الموديل" to item.model, "الرقم التسلسلي" to item.serial,
+            Information("الشركة المصنعة" to item.maker, "الموديل" to item.model,
+                "سنة الصنع" to item.manufactureYear?.toString().orEmpty(), "اللوحة" to item.plate.orEmpty(), "الرقم التسلسلي" to item.serial,
                 "تاريخ الشراء" to item.purchased, "سعر الشراء" to item.price?.let(::money).orEmpty(),
                 "المواصفات" to item.specs, "العداد (كم)" to item.odometer?.toString().orEmpty(), "الملاحظات" to item.notes,
                 "تكاليف الصيانة" to totals.costText())
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = edit) { Text("تعديل الأصل") }
+                Button(onClick = edit) { Text("تعديل المركبة أو الجهاز") }
                 OutlinedButton(onClick = { model.change { queries.archive(id, !item.archived) } }) {
                     Text(if (item.archived) "إعادة تفعيل" else "أرشفة")
                 }
@@ -61,7 +62,7 @@ internal fun AssetDetails(
             }
         }
         item {
-            Heading("سجل الصيانة")
+            Heading("عمليات الصيانة")
             TextButton(onClick = addLog) { Text("تسجيل صيانة") }
         }
         if (logs.isEmpty()) item { Text("لا توجد عمليات صيانة") }
@@ -81,7 +82,7 @@ internal fun AssetDetails(
             }
         }
     }
-    if (deleting) Confirm("حذف الأصل", "سيُحذف الأصل وسجل صيانته وقطعه.", { deleting = false }) {
+    if (deleting) Confirm("حذف المركبة أو الجهاز", "سيُحذف المركبة أو الجهاز وسجل صيانته وقطعه.", { deleting = false }) {
         model.change(leave) { queries.deleteAsset(id) }
     }
     removingPart?.let { part ->
@@ -121,7 +122,7 @@ internal fun MaintenanceDetails(
     var deleting by rememberSaveable { mutableStateOf(false) }
     val entry = log
     if (entry == null) {
-        Text("سجل الصيانة غير متاح", Modifier.padding(16.dp))
+        Text("عمليات الصيانة غير متاح", Modifier.padding(16.dp))
         return
     }
     val asset = assets.firstOrNull { it.id == entry.assetId }
@@ -138,7 +139,7 @@ internal fun MaintenanceDetails(
         if (asset?.archived == false) OutlinedButton(onClick = { repeat(entry) }) { Text("تسجيل إتمام دورة جديدة") }
         TextButton(onClick = { deleting = true }) { Text("حذف السجل") }
     }
-    if (deleting) Confirm("حذف سجل الصيانة", "هل تريد حذف هذه العملية؟", { deleting = false }) {
+    if (deleting) Confirm("حذف عمليات الصيانة", "هل تريد حذف هذه العملية؟", { deleting = false }) {
         model.change(leave) { queries.deleteMaintenance(id) }
     }
 }

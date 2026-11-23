@@ -13,7 +13,7 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 object Backup {
-    private val magic = byteArrayOf(77, 65, 76, 1)
+    private val magic = byteArrayOf(77, 65, 76, 2)
     const val MAX_BYTES = 64 * 1024 * 1024
     private const val HEADER_SIZE = 32
 
@@ -39,7 +39,7 @@ object Backup {
         }
         require(bytes.size in (HEADER_SIZE + 16)..MAX_BYTES)
         val header = bytes.copyOfRange(0, HEADER_SIZE)
-        require(header.copyOfRange(0, 4).contentEquals(magic))
+        require(header.copyOfRange(0, 3).contentEquals(magic.copyOfRange(0, 3)) && header[3].toInt() in 1..2)
         val payload = cipher(Cipher.DECRYPT_MODE, header, password)
             .doFinal(bytes, HEADER_SIZE, bytes.size - HEADER_SIZE)
         return Json.decodeFromString(payload.decodeToString(throwOnInvalidSequence = true))

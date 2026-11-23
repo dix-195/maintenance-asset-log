@@ -1,0 +1,7 @@
+<resources>
+    <color name="mizan_primary">#5A7D6C</color>
+    <style name="MizanBase" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/mizan_splash</item>
+    </style>
+    <style name="MizanTheme" parent="MizanBase" />
+</resources>

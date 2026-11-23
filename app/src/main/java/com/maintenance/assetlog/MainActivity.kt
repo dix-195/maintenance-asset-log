@@ -67,7 +67,7 @@ class MainActivity : FragmentActivity() {
                             settings?.locked == true && !unlocked -> Column(
                                 Modifier.fillMaxSize().padding(24.dp), Arrangement.Center, Alignment.CenterHorizontally
                             ) {
-                                Text("سجل الصيانة والمتابعة الدورية", style = MaterialTheme.typography.headlineSmall)
+                                Text("ميزان", style = MaterialTheme.typography.headlineSmall)
                                 Button(onClick = { authenticate { unlocked = true } }) { Text("فتح التطبيق") }
                                 if (authenticationMessage.isNotEmpty()) Text(authenticationMessage)
                             }
@@ -92,12 +92,12 @@ class MainActivity : FragmentActivity() {
 
     private fun startExport(password: String) {
         model.prepareExport(password)
-        exportFile.launch("maintenance-backup.mal")
+        exportFile.launch("mizan-backup.mal")
     }
 
     private fun receive(intent: Intent) {
         if (intent.action == "com.maintenance.assetlog.OPEN") {
-            pendingRoute = intent.data?.path?.removePrefix("/")?.takeIf { it.matches(Regex("(asset|maintenance)/[0-9]+")) }
+            pendingRoute = intent.data?.path?.removePrefix("/")?.takeIf { it.matches(Regex("(asset|maintenance)/[0-9]+|operation/[a-f0-9-]{36}")) }
         }
     }
 
@@ -124,13 +124,19 @@ class MainActivity : FragmentActivity() {
 }
 
 private val maintenanceLight = lightColorScheme(
-    primary = Color(0xFF00695C), onPrimary = Color.White,
-    primaryContainer = Color(0xFFB9F3E4), onPrimaryContainer = Color(0xFF00201A),
-    surface = Color(0xFFF7FAF8), onSurface = Color(0xFF17201E)
+    background = Color(0xFFF7F8F5), surface = Color.White,
+    surfaceVariant = Color(0xFFEEF1EC), primary = Color(0xFF5A7D6C),
+    secondary = Color(0xFFC89D7C), onBackground = Color(0xFF242B27),
+    onSurface = Color(0xFF242B27), onSurfaceVariant = Color(0xFF6B7570),
+    onPrimary = Color.White, onSecondary = Color(0xFF242B27),
+    primaryContainer = Color(0xFFDCE9DF), onPrimaryContainer = Color(0xFF242B27)
 )
 
 private val maintenanceDark = darkColorScheme(
-    primary = Color(0xFF85D7C5), onPrimary = Color(0xFF00382F),
-    primaryContainer = Color(0xFF005045), onPrimaryContainer = Color(0xFFB9F3E4),
-    surface = Color(0xFF101714), onSurface = Color(0xFFDDE4E0)
+    background = Color(0xFF171D19), surface = Color(0xFF202823),
+    surfaceVariant = Color(0xFF303A34), primary = Color(0xFFA8C6B4),
+    secondary = Color(0xFFDCB79A), onBackground = Color(0xFFE5ECE6),
+    onSurface = Color(0xFFE5ECE6), onSurfaceVariant = Color(0xFFBCC7BF),
+    onPrimary = Color(0xFF23392D), onSecondary = Color(0xFF36271C),
+    primaryContainer = Color(0xFF30483B), onPrimaryContainer = Color(0xFFE1EEE5)
 )

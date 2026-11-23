@@ -26,7 +26,7 @@ class LogViewModel(private val app: Application) : AndroidViewModel(app) {
     init {
         perform("تعذر فتح قاعدة البيانات المشفرة. بقيت البيانات محفوظة.") {
             val repository = EntryPointAccessors.fromApplication(app, ReminderDependencies::class.java).repository().get()
-            repository.queries.assets().first()
+            repository.ensureCatalog()
             withContext(Dispatchers.Main) { _repository.value = repository }
         }
     }

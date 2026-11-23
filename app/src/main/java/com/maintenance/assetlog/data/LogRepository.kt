@@ -9,6 +9,77 @@ import javax.inject.Singleton
 @Singleton
 class LogRepository @Inject constructor(private val database: LogDatabase) {
     val queries = database.logs()
+    val ledger = database.ledger()
+
+    suspend fun ensureCatalog() = database.withTransaction {
+        if (ledger.exportSections().isEmpty()) {
+            ledger.seedSections(defaultSections)
+            ledger.seedServices(defaultServices)
+        }
+    }
+
+    suspend fun save(section: Section) {
+        require(section.name.isNotBlank() && section.name.length <= 80)
+        ledger.save(section)
+    }
+
+    suspend fun save(service: Service) = database.withTransaction {
+        validate(service)
+        require(ledger.exportSections().any { it.id == service.sectionId && !it.archived })
+        ledger.save(service)
+    }
+
+    suspend fun save(operation: Operation) = database.withTransaction {
+        validate(operation)
+        require(ledger.exportSections().any { it.id == operation.sectionId })
+        val previous = ledger.find(operation.id)
+        val successor = ledger.successor(operation.id)
+        val vehicle = operation.vehicleId?.let { queries.findAsset(it) }
+        require(previous?.vehicleId == operation.vehicleId || operation.vehicleId == null || vehicle != null)
+        val row = operation.copy(previousId = previous?.previousId,
+            anchorDay = operation.anchorDay.takeIf { previous == null || previous.dueOn == operation.dueOn })
+        ledger.save(row)
+        if (vehicle != null && operation.odometer != null && operation.state == PaymentState.PAID &&
+            operation.odometer > (vehicle.odometer ?: -1)) {
+            queries.save(vehicle.copy(odometer = operation.odometer))
+        }
+        if (previous?.state != PaymentState.PAID && successor == null) {
+            row.followUp()?.let { ledger.save(it) }
+        }
+    }
+
+    suspend fun clearAll() = database.withTransaction {
+        queries.clear()
+        ledger.clearOperations()
+        ledger.clearServices()
+        ledger.clearSections()
+        ensureCatalog()
+    }
+
+    private fun validate(service: Service) {
+        require(service.id.isNotBlank() && service.name.isNotBlank() &&
+            service.amount?.let { it in 0..1_000_000_000_000 } != false)
+        nextOccurrence(service.date.asDate() ?: LocalDate.now(), service.recurrence)
+    }
+
+    private fun validate(operation: Operation) {
+        require(operation.title.isNotBlank() && operation.amount in 0..1_000_000_000_000)
+        require(operation.currency.matches(Regex("[A-Z]{3}")))
+        require((operation.state == PaymentState.PAID) == operation.paidOn.isNotBlank())
+        val date = LocalDate.parse(operation.date)
+        operation.paidOn.asDate()
+        operation.endsOn.asDate()
+        require(operation.anchorDay == null || operation.anchorDay in 1..31)
+        require(operation.mileageInterval == null || operation.mileageInterval > 0)
+        nextOccurrence(operation.dueOn.asDate() ?: date, operation.recurrence)
+        require(operation.odometer == null || operation.odometer >= 0)
+        require(operation.nextKm == null || (operation.vehicleId != null &&
+            operation.nextKm >= 0 && (operation.odometer == null ||
+                operation.nextKm >= operation.odometer)))
+        require(operation.reminderDays == null || operation.reminderDays in 0..365)
+        require(operation.attachment == null || operation.attachment.size <= 512_000)
+    }
+
 
     suspend fun save(asset: Asset, correction: Boolean) = database.withTransaction {
         validate(asset)
@@ -31,7 +102,8 @@ class LogRepository @Inject constructor(private val database: LogDatabase) {
     }
 
     suspend fun snapshot() = database.withTransaction {
-        Snapshot(queries.exportAssets(), queries.exportHistory(), queries.exportParts())
+        Snapshot(queries.exportAssets(), queries.exportHistory(), queries.exportParts(),
+            ledger.exportSections(), ledger.exportServices(), ledger.exportOperations())
     }
 
     suspend fun restore(snapshot: Snapshot) {
@@ -43,8 +115,26 @@ class LogRepository @Inject constructor(private val database: LogDatabase) {
         require(snapshot.history.distinctBy { it.id }.size == snapshot.history.size)
         require(snapshot.parts.distinctBy { it.id }.size == snapshot.parts.size)
         require(snapshot.history.all { it.assetId in ids } && snapshot.parts.all { it.assetId in ids })
+        snapshot.operations.forEach(::validate)
+        snapshot.sections.forEach { require(it.id.isNotBlank() && it.name.isNotBlank()) }
+        snapshot.services.forEach(::validate)
+        val precursors = snapshot.operations.mapNotNull { it.previousId }
+        require(precursors.distinct().size == precursors.size)
+        val sectionIds = snapshot.sections.map { it.id }.toSet()
+        require(snapshot.operations.all { it.sectionId in sectionIds } &&
+            snapshot.services.all { it.sectionId in sectionIds })
+        require(sectionIds.size == snapshot.sections.size &&
+            snapshot.services.distinctBy { it.id }.size == snapshot.services.size &&
+            snapshot.operations.distinctBy { it.id }.size == snapshot.operations.size)
         database.withTransaction {
             queries.clear()
+            ledger.clearOperations()
+            ledger.clearServices()
+            ledger.clearSections()
+            snapshot.sections.forEach { ledger.save(it) }
+            snapshot.services.forEach { ledger.save(it) }
+            snapshot.operations.forEach { ledger.save(it) }
+            ensureCatalog()
             snapshot.assets.forEach { queries.save(it) }
             snapshot.history.forEach { queries.save(it) }
             snapshot.parts.forEach { queries.save(it) }
@@ -56,6 +146,8 @@ class LogRepository @Inject constructor(private val database: LogDatabase) {
         require(asset.price == null || asset.price in 0..1_000_000_000_000)
         require(asset.odometer == null || asset.odometer >= 0)
         require(asset.photo == null || asset.photo.size <= 512_000)
+        require(asset.manufactureYear == null || asset.manufactureYear in 1886..(LocalDate.now().year + 2))
+        require(asset.plate == null || asset.plate.length <= 32)
         asset.purchased.asDate()
     }
 
@@ -76,7 +168,11 @@ class LogRepository @Inject constructor(private val database: LogDatabase) {
 }
 
 @kotlinx.serialization.Serializable
-data class Snapshot(val assets: List<Asset>, val history: List<Maintenance>, val parts: List<Part>)
+data class Snapshot(
+    val assets: List<Asset>, val history: List<Maintenance>, val parts: List<Part>,
+    val sections: List<Section> = emptyList(), val services: List<Service> = emptyList(),
+    val operations: List<Operation> = emptyList()
+)
 fun String.asDate(): LocalDate? = takeIf(String::isNotBlank)?.let(LocalDate::parse)
 
 fun Maintenance.due(today: LocalDate, currentOdometer: Long?, days: Int): Due =

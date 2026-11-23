@@ -1,0 +1,6 @@
+<resources>
+    <style name="MizanTheme" parent="MizanBase">
+        <item name="android:windowSplashScreenBackground">@color/mizan_primary</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/mizan_mark</item>
+    </style>
+</resources>

@@ -10,7 +10,8 @@ data class Asset(
     val name: String, val category: String, val maker: String = "", val model: String = "",
     val serial: String = "", val purchased: String = "", val price: Long? = null,
     val specs: String = "", val notes: String = "", val photo: ByteArray? = null,
-    val archived: Boolean = false, val odometer: Long? = null
+    val archived: Boolean = false, val odometer: Long? = null,
+    val manufactureYear: Int? = null, val plate: String? = null
 )
 
 @Entity(
@@ -63,6 +64,7 @@ interface LogDao {
     fun filteredTotals(search: String, date: String, type: String): Flow<List<CostTotal>>
     @Query("SELECT DISTINCT type FROM Maintenance ORDER BY type") fun types(): Flow<List<String>>
     @Query("SELECT * FROM Maintenance WHERE id=:id") fun maintenance(id: Long): Flow<Maintenance?>
+    @Query("SELECT * FROM Maintenance ORDER BY date DESC,id DESC") fun allHistory(): Flow<List<Maintenance>>
     @Query("SELECT * FROM Maintenance ORDER BY id") suspend fun exportHistory(): List<Maintenance>
     @Query("""
         SELECT m.* FROM Maintenance m JOIN Asset a ON a.id=m.assetId
@@ -88,7 +90,11 @@ interface LogDao {
     @Query("UPDATE Asset SET archived=:archived WHERE id=:id") suspend fun archive(id: Long, archived: Boolean)
 }
 
-@Database(entities = [Asset::class, Maintenance::class, Part::class], version = 1)
+@Database(
+    entities = [Asset::class, Maintenance::class, Part::class, Section::class, Service::class, Operation::class],
+    version = 2, autoMigrations = [AutoMigration(from = 1, to = 2)]
+)
 abstract class LogDatabase : RoomDatabase() {
     abstract fun logs(): LogDao
+    abstract fun ledger(): LedgerDao
 }

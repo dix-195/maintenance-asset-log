@@ -17,6 +17,7 @@ import com.maintenance.assetlog.data.LogRepository
 import com.maintenance.assetlog.data.asDate
 import com.maintenance.assetlog.data.due
 import com.maintenance.assetlog.domain.Priority
+import com.maintenance.assetlog.domain.outstanding
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -53,12 +54,27 @@ class ReminderWorker(context: Context, parameters: WorkerParameters) : Coroutine
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val channel = "maintenance-due"
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(channel, "الصيانة والضمان", NotificationManager.IMPORTANCE_DEFAULT)
+            NotificationChannel(channel, "ميزان · الالتزامات والتذكيرات", NotificationManager.IMPORTANCE_DEFAULT)
         )
         val repository = EntryPointAccessors.fromApplication(context, ReminderDependencies::class.java).repository().get()
         val assets = repository.queries.assets().first().associateBy { it.id }
         val today = LocalDate.now()
         val notices = buildMap {
+            repository.ledger.operations().first().filter { it.remind && it.outstanding() }.forEach { item ->
+                val dueDate = item.dueOn.ifBlank { item.endsOn }.asDate()
+                val kmDue = item.nextKm?.let { target -> assets[item.vehicleId]?.odometer?.let { it >= target } } == true
+                val phase = when {
+                    kmDue -> "العداد"
+                    dueDate == null -> null
+                    dueDate < today -> "متأخر"
+                    dueDate == today -> "اليوم"
+                    dueDate <= today.plusDays((item.reminderDays ?: settings.days).toLong()) -> "قريب"
+                    else -> null
+                }
+                if (phase != null) {
+                    put("operation/${item.id}/$dueDate/${item.nextKm}/$phase", "ميزان · التزام $phase" to "operation/${item.id}")
+                }
+            }
             repository.queries.cycles().first().forEach { entry ->
                 val asset = assets[entry.assetId] ?: return@forEach
                 val due = entry.due(today, asset.odometer, settings.days)

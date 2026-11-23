@@ -1,6 +1,14 @@
 package com.maintenance.assetlog.presentation
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +30,7 @@ import androidx.navigation.compose.*
 import com.maintenance.assetlog.core.Settings
 import com.maintenance.assetlog.data.*
 import com.maintenance.assetlog.domain.Due
+import com.maintenance.assetlog.domain.paidItems
 import com.maintenance.assetlog.domain.Priority
 import java.math.BigDecimal
 import java.time.LocalDate
@@ -31,9 +40,10 @@ import kotlinx.coroutines.withContext
 
 private val tabs = listOf(
     Triple("home", "الرئيسية", Icons.Default.Home),
-    Triple("assets", "الأصول", Icons.AutoMirrored.Filled.List),
-    Triple("history", "سجل الصيانة", Icons.Default.DateRange),
-    Triple("settings", "الإعدادات", Icons.Default.Settings)
+    Triple("operations", "العمليات", Icons.AutoMirrored.Filled.List),
+    Triple("add", "إضافة", Icons.Default.Add),
+    Triple("reports", "التقارير", Icons.Default.DateRange),
+    Triple("more", "المزيد", Icons.Default.Settings)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,20 +65,51 @@ fun MaintenanceApp(
     }
     if (repo == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-            if (busy) CircularProgressIndicator()
+            if (busy) Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                repeat(4) {
+                    Surface(Modifier.fillMaxWidth().height(if (it == 0) 112.dp else 58.dp),
+                        shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {}
+                }
+            }
             else Text("تعذر فتح قاعدة البيانات المشفرة. بقيت البيانات محفوظة.")
         }
         return
     }
-    val queries = checkNotNull(repo).queries
+    val repository = checkNotNull(repo)
+    val queries = repository.queries
+    val ledger = repository.ledger
+    val sections by remember(ledger) { ledger.sections() }.collectAsStateWithLifecycle(emptyList())
+    val services by remember(ledger) { ledger.services() }.collectAsStateWithLifecycle(emptyList())
+    val operations by remember(ledger) { ledger.operations() }.collectAsStateWithLifecycle(emptyList())
+    val legacy by remember(queries) { queries.allHistory() }.collectAsStateWithLifecycle(emptyList())
+    val legacyDue by remember(queries) { queries.cycles() }.collectAsStateWithLifecycle(emptyList())
     val assets by remember(queries) { queries.assets() }.collectAsStateWithLifecycle(emptyList())
+    val paid by produceState(emptyList<com.maintenance.assetlog.domain.PaidItem>(), operations, legacy, assets) {
+        value = withContext(Dispatchers.Default) { paidItems(operations, legacy, assets) }
+    }
+    val locations = remember(operations) { operations.filter { it.sectionId == HOUSE }.map { it.subject }
+        .filter { it.isNotBlank() }.distinct().sorted() }
+    var draft by remember { mutableStateOf<OperationDraft?>(null) }
+    var editingSection by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingService by remember { mutableStateOf<Pair<Section, Service?>?>(null) }
+    val add = {
+        val section = sections.firstOrNull { it.id == PERSONAL && !it.archived }
+            ?: sections.firstOrNull { !it.archived }
+        if (section != null) draft = OperationDraft(section.id) else editingSection = ""
+    }
     LaunchedEffect(pendingRoute) {
         pendingRoute?.let { nav.navigate(it); routeHandled() }
     }
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        floatingActionButton = {
+            if (route == "home" || route == "operations") FloatingActionButton(onClick = add) {
+                Icon(Icons.Default.Add, "إضافة عملية سريعة")
+            }
+        },
         snackbarHost = { SnackbarHost(snack) },
         topBar = {
-            TopAppBar(title = { Text(tabs.find { it.first == route }?.second ?: "سجل الصيانة") },
+            TopAppBar(title = { Text(if (route == "home") "ميزان" else tabs.find { it.first == route }?.second ?: "ميزان") },
                 navigationIcon = {
                     if (tabs.none { it.first == route }) {
                         IconButton(onClick = { nav.popBackStack() }, enabled = !busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "رجوع") }
@@ -76,21 +117,71 @@ fun MaintenanceApp(
                 })
         },
         bottomBar = {
-            NavigationBar {
+            Surface(shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), shadowElevation = 3.dp) {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 tabs.forEach { (path, label, icon) ->
                     NavigationBarItem(selected = route == path, enabled = !busy, onClick = {
-                        nav.navigate(path) { popUpTo("home"); launchSingleTop = true }
-                    }, icon = { Icon(icon, null) }, label = { Text(label) })
+                        if (path == "add") add()
+                        else nav.navigate(path) { popUpTo("home"); launchSingleTop = true }
+                    }, icon = {
+                        val size by androidx.compose.animation.core.animateDpAsState(
+                            if (route == path) 25.dp else 22.dp,
+                            tween(if (settings.reduceMotion) 0 else 220), label = "nav-icon"
+                        )
+                        Icon(icon, null, Modifier.size(size))
+                    }, label = { Text(label, maxLines = 1) })
                 }
+            }
             }
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            NavHost(nav, startDestination = "home") {
+            val motion = !settings.reduceMotion
+            NavHost(nav, startDestination = "home",
+                enterTransition = { if (motion) fadeIn(tween(220)) + slideInHorizontally(tween(220)) { -it / 12 } else EnterTransition.None },
+                exitTransition = { if (motion) fadeOut(tween(180)) else ExitTransition.None },
+                popEnterTransition = { if (motion) fadeIn(tween(220)) else EnterTransition.None },
+                popExitTransition = { if (motion) fadeOut(tween(220)) + slideOutHorizontally(tween(220)) { -it / 12 } else ExitTransition.None }
+            ) {
                 composable("home") {
-                    Home(queries, assets, settings, { nav.navigate("asset-edit/0") },
-                        { nav.navigate("log-edit/0/0/0") }, { nav.navigate("maintenance/$it") })
+                    Dashboard(settings, sections, operations, paid, assets, legacyDue,
+                        { nav.navigate("section/$it") }, { editingSection = "" },
+                        { nav.navigate("operation/$it") }, { nav.navigate("maintenance/$it") })
+                }
+                composable("operations") {
+                    OperationsScreen(sections, operations, paid.filter { it.legacyId != null },
+                        { nav.navigate("operation/$it") }, { nav.navigate("maintenance/$it") })
+                }
+                composable("reports") { ReportsScreen(sections, paid, settings) }
+                composable("more") {
+                    Page {
+                        item { Entry("الإعدادات", "التفضيلات والنسخ الاحتياطي", { nav.navigate("settings") }) }
+                        item { Entry("المركبات والأجهزة", "إدارة المركبات والسجلات المرتبطة بها", { nav.navigate("assets") }) }
+                        item { Heading("إدارة الأقسام") }
+                        item { TextButton(onClick = { editingSection = "" }) { Text("إضافة قسم جديد") } }
+                        items(sections, key = Section::id) { section ->
+                            Entry(section.name, if (section.archived) "مؤرشف" else "نشط", { editingSection = section.id })
+                        }
+                    }
+                }
+                composable("section/{key}") { entry ->
+                    sections.find { it.id == entry.arguments?.getString("key") }?.let { section ->
+                        SectionScreen(section, services.filter { it.sectionId == section.id }, operations.filter { it.sectionId == section.id },
+                            { draft = OperationDraft(section.id, service = it) }, { editingSection = section.id },
+                            { editingService = section to it }, { nav.navigate("operation/$it") },
+                            { nav.navigate("assets") }, { nav.navigate("history") })
+                    }
+                }
+                composable("operation/{key}") { entry ->
+                    val key = entry.arguments?.getString("key").orEmpty()
+                    val operation by remember(ledger, key) { ledger.operation(key) }.collectAsStateWithLifecycle(null)
+                    val row = operation
+                    if (row != null) {
+                        OperationSheet(OperationDraft(row.sectionId, row), sections, assets, settings, model, { nav.popBackStack() }, locations)
+                    } else {
+                        Page { item { Text("العملية غير متاحة.") } }
+                    }
                 }
                 composable("assets") {
                     Assets(assets, { nav.navigate("asset-edit/0") }, { nav.navigate("asset/$it") })
@@ -135,72 +226,18 @@ fun MaintenanceApp(
             }
         }
     }
+    draft?.let { OperationSheet(it, sections, assets, settings, model, { draft = null }, locations) }
+    editingSection?.let { id -> SectionSheet(sections.find { it.id == id }, model) { editingSection = null } }
+    editingService?.let { (section, service) -> ServiceSheet(section, service, model) { editingService = null } }
     prepared?.let { snapshot ->
         Confirm("استعادة البيانات",
-            "ستُستبدل البيانات الحالية بـ ${snapshot.assets.size} أصل و${snapshot.history.size} سجل صيانة.",
+            "ستُستبدل البيانات الحالية بـ ${snapshot.operations.size} عملية جديدة و${snapshot.history.size} عملية صيانة سابقة.",
             model::discardBackup, model::restore)
     }
 }
 
 private fun androidx.navigation.NavBackStackEntry.number(key: String) =
     arguments?.getString(key)?.toLongOrNull() ?: 0L
-
-@Composable
-private fun Home(
-    queries: LogDao, assets: List<AssetItem>, settings: Settings,
-    addAsset: () -> Unit, addLog: () -> Unit, openLog: (Long) -> Unit
-) {
-    val cycles by remember { queries.cycles() }.collectAsStateWithLifecycle(emptyList())
-    val recent by remember { queries.history(5) }.collectAsStateWithLifecycle(emptyList())
-    val totals by remember { queries.totals() }.collectAsStateWithLifecycle(emptyList())
-    val byId = remember(assets) { assets.associateBy { it.id } }
-    val today = currentDate()
-    val upcoming by produceState(emptyList<Pair<Maintenance, Due>>(), cycles, byId, today, settings.days) {
-        value = withContext(Dispatchers.Default) {
-            cycles.map { it to it.due(today, byId[it.assetId]?.odometer, settings.days) }
-                .sortedWith(compareBy({ it.second.priority }, { it.second.days ?: Long.MAX_VALUE }, { it.second.kilometers ?: Long.MAX_VALUE }))
-        }
-    }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Text("نظرة عامة", style = MaterialTheme.typography.headlineMedium) }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Metric("الأصول", assets.size.toString(), Modifier.weight(1f))
-                Metric("تحتاج صيانة قريبًا", upcoming.filter { it.second.priority in listOf(Priority.SOON, Priority.TODAY) }.distinctBy { it.first.assetId }.size.toString(), Modifier.weight(1f))
-                Metric("الصيانات المتأخرة", upcoming.count { it.second.priority == Priority.LATE }.toString(), Modifier.weight(1f))
-            }
-        }
-        item { Metric("إجمالي تكاليف الصيانة", totals.costText(), Modifier.fillMaxWidth()) }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = addAsset) { Text("إضافة أصل") }
-                OutlinedButton(onClick = addLog) { Text("تسجيل صيانة") }
-            }
-        }
-        item { Heading("الصيانات القادمة") }
-        if (upcoming.isEmpty()) item { Text("لا توجد دورات صيانة نشطة") }
-        items(upcoming.take(20), key = { "cycle-${it.first.id}" }) { (log, due) ->
-            Entry(log.type, byId[log.assetId]?.name.orEmpty(), { openLog(log.id) }) {
-                DueLabel(due)
-            }
-        }
-        item { Heading("آخر عمليات الصيانة") }
-        if (recent.isEmpty()) item { Text("لا توجد عمليات مسجلة") }
-        items(recent, key = { "recent-${it.id}" }) { log ->
-            Entry(log.type, "${byId[log.assetId]?.name.orEmpty()} · ${log.date}", { openLog(log.id) })
-        }
-    }
-}
-
-@Composable
-private fun Metric(label: String, value: String, modifier: Modifier) {
-    Card(modifier) {
-        Column(Modifier.padding(12.dp)) {
-            Text(value, style = MaterialTheme.typography.titleLarge)
-            Text(label, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
 
 @Composable
 private fun Assets(assets: List<AssetItem>, add: () -> Unit, open: (Long) -> Unit) {
@@ -219,8 +256,8 @@ private fun Assets(assets: List<AssetItem>, add: () -> Unit, open: (Long) -> Uni
         }
     }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { Button(onClick = add) { Text("إضافة أصل") } }
-        item { Field("بحث عن أصل", search) { search = it } }
+        item { Button(onClick = add) { Text("إضافة مركبة أو جهاز") } }
+        item { Field("بحث عن مركبة أو جهاز", search) { search = it } }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Choice(status, listOf("الكل", "نشط", "مؤرشف")) { status = it }
@@ -251,7 +288,7 @@ private fun History(queries: LogDao, assets: List<AssetItem>, add: () -> Unit, o
     }.collectAsStateWithLifecycle(emptyList())
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Button(onClick = add) { Text("تسجيل صيانة") } }
-        item { Field("بحث بالأصل أو القطعة أو الملاحظات", search) { search = it } }
+        item { Field("بحث بالمركبة أو الجهاز أو القطعة أو الملاحظات", search) { search = it } }
         item { Field("تصفية بالتاريخ (سنة أو شهر أو يوم)", date) { date = it } }
         item { Choice(type.ifEmpty { "كل الأنواع" }, listOf("كل الأنواع") + types) { type = it.takeUnless { it == "كل الأنواع" }.orEmpty() } }
         item { Text("المجموع: ${totals.costText()}") }
